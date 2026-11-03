@@ -1,0 +1,10 @@
+rules_version = '2';
+// 简易规则：任何人可读写对应房间（临时抽签用）。
+// 正式长期使用请在 Firebase 控制台收紧为按需鉴权。
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /draws/{roomId} {
+      allow read, write: if true;
+    }
+  }
+}

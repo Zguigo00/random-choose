@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>多人抽签</title>
+<!-- Firebase SDK (compat 版，无需构建，可直接托管到静态站点) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<style>
+:root{ --bg1:#5b4b8a; --bg2:#2c2c54; --card:#ffffff; }
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  min-height:100vh;
+  background:linear-gradient(135deg,var(--bg1),var(--bg2) 60%);
+  color:#333;
+  display:flex;flex-direction:column;align-items:center;
+  padding:24px 16px;
+}
+.wrap{width:100%;max-width:440px;}
+header{text-align:center;margin-bottom:24px;}
+header h1{
+  font-size:30px;color:#fff;letter-spacing:2px;
+  user-select:none;cursor:pointer;display:inline-block;padding:8px 20px;
+}
+header p{color:rgba(255,255,255,.75);font-size:13px;margin-top:4px;}
+.card{background:var(--card);border-radius:16px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,.25);margin-bottom:20px;}
+.card h2{font-size:16px;color:#5b4b8a;margin-bottom:12px;}
+.input-row{display:flex;gap:8px;}
+.input-row input{flex:1;padding:10px 12px;border:1px solid #ddd;border-radius:10px;font-size:15px;outline:none;}
+.input-row input:focus{border-color:#5b4b8a;}
+.input-row button{padding:10px 16px;border:none;border-radius:10px;background:#5b4b8a;color:#fff;font-size:15px;cursor:pointer;}
+.hint{font-size:12px;color:#999;margin-top:8px;}
+.names{list-style:none;margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;min-height:10px;}
+.names li{background:#f0f0f5;border-radius:20px;padding:6px 12px;font-size:14px;color:#444;}
+.names .count{font-size:12px;color:#999;margin-top:12px;}
+
+.stage{text-align:center;margin-top:16px;min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+#status{font-size:13px;color:rgba(255,255,255,.8);margin-bottom:8px;}
+#resultName{font-size:44px;font-weight:bold;color:#fff;min-width:120px;padding:10px 20px;opacity:.35;}
+#resultName.show{opacity:1;color:#ffd93d;animation:pop .5s ease;}
+@keyframes pop{0%{transform:scale(.6);}60%{transform:scale(1.2);}100%{transform:scale(1);}}
+#confetti{position:fixed;top:0;left:0;pointer-events:none;z-index:998;}
+
+#toast{position:fixed;left:50%;bottom:40px;transform:translateX(-50%);background:rgba(0,0,0,.75);color:#fff;padding:10px 18px;border-radius:20px;font-size:14px;opacity:0;transition:opacity .3s;z-index:1001;}
+
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:1000;}
+.panel{background:#fff;border-radius:16px;padding:24px;width:90%;max-width:340px;max-height:90vh;overflow:auto;}
+.panel h3{font-size:17px;color:#333;margin-bottom:16px;text-align:center;}
+.panel .field{margin-bottom:14px;}
+.panel label{display:block;font-size:13px;color:#666;margin-bottom:6px;}
+.panel input,.panel select{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:10px;font-size:14px;outline:none;}
+.panel .switch{display:flex;align-items:center;justify-content:space-between;}
+.panel .switch label{margin-bottom:0;}
+.panel .row{display:flex;gap:8px;margin-bottom:10px;}
+.panel .row button{flex:1;padding:10px;border:none;border-radius:10px;font-size:14px;cursor:pointer;}
+.btn-primary{background:#5b4b8a;color:#fff;}
+.btn-danger{background:#ff6b6b;color:#fff;}
+.btn-cancel{background:#eee;color:#666;}
+#drawFullBtn{width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,#ff6b6b,#ff8a5c);color:#fff;font-size:18px;font-weight:bold;cursor:pointer;letter-spacing:4px;margin-bottom:6px;}
+.hidden{display:none!important;}
+#pinerror{color:#ff6b6b;font-size:13px;text-align:center;margin-top:8px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="title">🎲 多人抽签</h1>
+    <p>输入名字加入，等待主持人开奖</p>
+  </header>
+
+  <div class="card">
+    <h2>报名</h2>
+    <div class="input-row">
+      <input id="nameInput" placeholder="输入你的名字" />
+      <button id="joinBtn">加入</button>
+    </div>
+    <ul class="names" id="nameList"></ul>
+    <div class="count" id="count"></div>
+  </div>
+
+  <div class="stage">
+    <div id="status">等待抽签</div>
+    <div id="resultName">—</div>
+  </div>
+</div>
+
+<canvas id="confetti"></canvas>
+<div id="toast"></div>
+
+<!-- 管理员密码 -->
+<div class="overlay hidden" id="pinOverlay">
+  <div class="panel">
+    <h3>请输入管理密码</h3>
+    <div class="field"><input id="pinInput" type="password" placeholder="输入密码" /></div>
+    <div class="row">
+      <button class="btn-cancel" id="pinCancel">取消</button>
+      <button class="btn-primary" id="pinOk">确认</button>
+    </div>
+    <div id="pinerror"></div>
+  </div>
+</div>
+
+<!-- 管理面板（仅主持人） -->
+<div class="overlay hidden" id="secretOverlay">
+  <div class="panel">
+    <h3>管理面板（仅主持人）</h3>
+    <button id="drawFullBtn">开 始 抽 签</button>
+    <div class="field switch">
+      <label>开启内定（指定必中）</label>
+      <input type="checkbox" id="riggedToggle" />
+    </div>
+    <div class="field">
+      <label>内定中奖者</label>
+      <select id="riggedSelect"></select>
+    </div>
+    <div class="field">
+      <label>修改管理密码</label>
+      <input id="newPin" type="text" placeholder="留空则不修改" />
+    </div>
+    <div class="row">
+      <button class="btn-danger" id="resetBtn">清空名单</button>
+      <button class="btn-cancel" id="secretCancel">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+
+  // =====================================================
+  // 1. 请在这里填入你的 Firebase 配置（Firebase 控制台 → 项目设置 → 添加 Web 应用）
+  // =====================================================
+  const firebaseConfig = {
+    apiKey: "在这里填 apiKey",
+    authDomain: "在这里填 authDomain",
+    projectId: "在这里填 projectId",
+    appId: "在这里填 appId",
+  };
+
+  // 房间号：同一场活动用同一个 room 参数；不同活动换不同 room 即可隔离
+  const ROOM = new URLSearchParams(location.search).get('room') || 'room1';
+
+  if (!firebaseConfig.projectId || firebaseConfig.projectId.indexOf('在这里填') !== -1) {
+    alert('请先在 index.html 顶部填入你的 Firebase 配置（projectId 等）');
+  } else {
+    firebase.initializeApp(firebaseConfig);
+  }
+  const db = firebase.firestore();
+  const roomRef = db.collection('draws').doc(ROOM);
+
+  // ---- 内定配置：只存在于主持人本地，绝不写入云端 ----
+  const LS_PIN='drawAdminPin', LS_RIG='drawRigged', LS_RIGNAME='drawRiggedName';
+  const defaultPin = '0000';
+  let riggedEnabled = localStorage.getItem(LS_RIG)==='1';
+  let riggedName = localStorage.getItem(LS_RIGNAME)||'';
+
+  const nameInput=$('nameInput'), joinBtn=$('joinBtn'), nameList=$('nameList'),
+        count=$('count'), statusEl=$('status'), resultName=$('resultName');
+
+  let names = [];        // 当前名单（按报名时间排序）
+  let lastSession = null;
+  let rolling = false;
+
+  function renderNames(){
+    nameList.innerHTML='';
+    names.forEach(n=>{
+      const li=document.createElement('li');
+      li.textContent=n;
+      nameList.appendChild(li);
+    });
+    count.textContent = names.length ? '共 ' + names.length + ' 人' : '';
+    updateRiggedSelect();
+  }
+
+  function join(){
+    const name = nameInput.value.trim();
+    if(!name) return;
+    if(names.includes(name)){ toast('这个名字已在名单里'); return; }
+    // Firestore 用「定点更新」写入，多人同时加入不会互相覆盖
+    roomRef.update({ ['participants.'+name]: Date.now() })
+      .then(()=>{ nameInput.value=''; toast('已加入名单'); })
+      .catch(()=>{
+        // 文档还不存在时先创建
+        roomRef.set({ participants: { [name]: Date.now() } }, { merge: true })
+          .then(()=>{ nameInput.value=''; toast('已加入名单'); })
+          .catch(e=>toast('加入失败：'+e.message));
+      });
+  }
+  joinBtn.onclick=join;
+  nameInput.addEventListener('keydown',e=>{ if(e.key==='Enter') join(); });
+
+  // ---- 实时监听云端数据 ----
+  roomRef.onSnapshot(snap=>{
+    const data = snap.exists ? snap.data() : {};
+    const participants = data.participants || {};
+    names = Object.keys(participants).sort((a,b)=>participants[a]-participants[b]);
+    renderNames();
+
+    const result = data.result;
+    if(result && result.session){
+      if(result.session !== lastSession){
+        lastSession = result.session;
+        playResult(result.winner || '');
+      } else if(!rolling){
+        showResult(result.winner || '');
+      }
+    }
+  }, err=>{
+    toast('连接失败，请检查网络或配置');
+  });
+
+  function showResult(name){
+    resultName.textContent = name || '—';
+    resultName.classList.add('show');
+    statusEl.textContent = name ? '🎉 中奖者' : '暂无结果';
+    if(name) celebrate();
+  }
+
+  function playResult(winner){
+    if(!names.length){ showResult(winner); return; }
+    rolling = true;
+    statusEl.textContent = '抽签中…';
+    resultName.classList.remove('show');
+    const total = 2600;
+    const start = performance.now();
+    let last = -1;
+    function tick(){
+      const el = performance.now() - start;
+      if(el < total){
+        let i = (Math.random()*names.length)|0;
+        if(i===last && names.length>1) i=(i+1)%names.length;
+        last = i;
+        resultName.textContent = names[i];
+        setTimeout(tick, 45 + (el/total)*380);
+      } else {
+        rolling = false;
+        showResult(winner);
+      }
+    }
+    tick();
+  }
+
+  function doDraw(){
+    if(!names.length){ toast('还没有参与者'); return; }
+    let winner;
+    if(riggedEnabled && riggedName && names.includes(riggedName)){
+      winner = riggedName;
+    } else {
+      winner = names[(Math.random()*names.length)|0];
+    }
+    const session = Date.now() + '-' + (Math.random()+'').slice(2,6);
+    // 只把「结果」写入云端，内定配置不上传
+    roomRef.set({ result: { session, winner, ts: Date.now() } }, { merge: true })
+      .catch(e=>toast('抽签失败：'+e.message));
+  }
+  $('drawFullBtn').onclick=doDraw;
+
+  function resetAll(){
+    if(!confirm('确定清空名单并重置抽签结果吗？')) return;
+    roomRef.set({ participants: {}, result: {} })
+      .then(()=>toast('已清空'))
+      .catch(e=>toast(e.message));
+  }
+  $('resetBtn').onclick=resetAll;
+
+  // ---- 彩带特效 ----
+  function celebrate(){
+    const canvas=$('confetti'); const ctx=canvas.getContext('2d');
+    canvas.width=innerWidth; canvas.height=innerHeight;
+    const colors=['#ff6b6b','#feca57','#48dbfb','#1dd1a1','#ff9ff3','#54a0ff'];
+    const pieces=[];
+    for(let i=0;i<140;i++){
+      pieces.push({x:Math.random()*canvas.width,y:-20-Math.random()*canvas.height,
+        w:6+Math.random()*6,h:10+Math.random()*8,c:colors[(Math.random()*colors.length)|0],
+        vy:2+Math.random()*3,vx:-1.5+Math.random()*3,rot:Math.random()*Math.PI,vr:-0.15+Math.random()*0.3});
+    }
+    (function frame(){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      let alive=false;
+      pieces.forEach(p=>{ p.y+=p.vy;p.x+=p.vx;p.rot+=p.vr;
+        if(p.y<canvas.height+40) alive=true;
+        ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.fillStyle=p.c;ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);ctx.restore();
+      });
+      if(alive) requestAnimationFrame(frame); else ctx.clearRect(0,0,canvas.width,canvas.height);
+    })();
+  }
+
+  function toast(msg){
+    const t=$('toast'); t.textContent=msg; t.style.opacity='1';
+    clearTimeout(t._t); t._t=setTimeout(()=>t.style.opacity='0',1800);
+  }
+
+  // ---- 内定选择下拉框动态更新 ----
+  function updateRiggedSelect(){
+    const sel=$('riggedSelect');
+    sel.innerHTML='';
+    names.forEach(n=>{ const o=document.createElement('option'); o.value=n; o.textContent=n; sel.appendChild(o); });
+    if(riggedName) sel.value=riggedName;
+  }
+
+  // ---- 秘密入口：长按标题约 2 秒 ----
+  const pinOverlay=$('pinOverlay'), pinInput=$('pinInput'), pinErr=$('pinerror');
+  let holdTimer;
+  $('title').addEventListener('pointerdown',()=>{ holdTimer=setTimeout(openPinGate,1800); });
+  ['pointerup','pointerleave','pointercancel'].forEach(ev=>$('title').addEventListener(ev,()=>clearTimeout(holdTimer)));
+  function openPinGate(){ pinOverlay.classList.remove('hidden'); pinInput.value=''; pinErr.textContent=''; }
+
+  const secretOverlay=$('secretOverlay');
+  function getPin(){ return localStorage.getItem(LS_PIN)||defaultPin; }
+
+  $('pinCancel').onclick=()=>pinOverlay.classList.add('hidden');
+  $('pinOk').onclick=()=>{
+    if(pinInput.value===getPin()){ pinOverlay.classList.add('hidden'); openSecret(); }
+    else pinErr.textContent='密码错误';
+  };
+  pinInput.addEventListener('keydown',e=>{ if(e.key==='Enter') $('pinOk').click(); });
+
+  function openSecret(){
+    $('riggedToggle').checked=riggedEnabled;
+    updateRiggedSelect();
+    $('newPin').value='';
+    secretOverlay.classList.remove('hidden');
+  }
+  $('secretCancel').onclick=()=>secretOverlay.classList.add('hidden');
+  $('riggedToggle').onchange=e=>{
+    riggedEnabled=e.target.checked;
+    localStorage.setItem(LS_RIG, riggedEnabled?'1':'0');
+  };
+  $('riggedSelect').onchange=e=>{
+    riggedName=e.target.value;
+    localStorage.setItem(LS_RIGNAME, riggedName);
+  };
+  $('newPin').addEventListener('change',e=>{
+    const np=e.target.value.trim();
+    if(np) localStorage.setItem(LS_PIN, np);
+  });
+
+  renderNames();
+})();
+</script>
+</body>
+</html>
