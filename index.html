@@ -116,6 +116,13 @@ header p{color:rgba(255,255,255,.75);font-size:13px;margin-top:4px;}
       <select id="riggedSelect"></select>
     </div>
     <div class="field">
+      <label>删除报名人</label>
+      <div class="row" style="margin-bottom:0;">
+        <select id="removeSelect" style="flex:1;min-width:0;"></select>
+        <button class="btn-danger" id="removeBtn" style="flex:0 0 auto;">删除</button>
+      </div>
+    </div>
+    <div class="field">
       <label>修改管理密码</label>
       <input id="newPin" type="text" placeholder="留空则不修改" />
     </div>
@@ -176,6 +183,7 @@ header p{color:rgba(255,255,255,.75);font-size:13px;margin-top:4px;}
     });
     count.textContent = names.length ? '共 ' + names.length + ' 人' : '';
     updateRiggedSelect();
+    updateRemoveSelect();
   }
 
   function join(){
@@ -303,6 +311,21 @@ header p{color:rgba(255,255,255,.75);font-size:13px;margin-top:4px;}
     names.forEach(n=>{ const o=document.createElement('option'); o.value=n; o.textContent=n; sel.appendChild(o); });
     if(riggedName) sel.value=riggedName;
   }
+
+  function updateRemoveSelect(){
+    const sel=$('removeSelect');
+    sel.innerHTML='';
+    names.forEach(n=>{ const o=document.createElement('option'); o.value=n; o.textContent=n; sel.appendChild(o); });
+  }
+
+  function removeParticipant(){
+    const name=$('removeSelect').value;
+    if(!name){ toast('请选择要删除的人'); return; }
+    roomRef.update({ ['participants.'+name]: firebase.firestore.FieldValue.delete() })
+      .then(()=>toast('已删除 '+name))
+      .catch(e=>toast('删除失败：'+e.message));
+  }
+  $('removeBtn').onclick=removeParticipant;
 
   // ---- 秘密入口：长按标题约 2 秒 ----
   const pinOverlay=$('pinOverlay'), pinInput=$('pinInput'), pinErr=$('pinerror');
