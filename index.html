@@ -260,10 +260,12 @@ header p{color:var(--muted);font-size:13px;letter-spacing:1px;margin-top:6px;}
     const result = data.result;
     if(result && result.session){
       if(result.session !== lastSession){
+        const isNew = lastSession !== null;
         lastSession = result.session;
-        playResult(result.winner || '');
+        if(isNew){ playResult(result.winner || ''); }
+        else { showResult((result.winner||''), true); }
       } else if(!rolling){
-        showResult(result.winner || '');
+        showResult((result.winner||''), true);
       }
     }
   }, err=>{
@@ -271,12 +273,12 @@ header p{color:var(--muted);font-size:13px;letter-spacing:1px;margin-top:6px;}
   });
 
   const JIYU = ['好运爆棚，锦鲤附体', '万事胜意，好运连连', '福气满满，心愿达成', '天选之人，喜从天降', '手气爆棚，惊喜不断'];
-  function showResult(name){
+  function showResult(name, quiet){
     resultName.textContent = name || '—';
     resultName.classList.add('show');
     statusEl.textContent = name ? '🎉 中奖者' : '暂无结果';
     $('resultSub').textContent = name ? JIYU[(Math.random()*JIYU.length)|0] : '';
-    if(name){ if(navigator.vibrate) navigator.vibrate(80); celebrate(); }
+    if(name && !quiet){ if(navigator.vibrate) navigator.vibrate(80); celebrate(); }
   }
 
   function playResult(winner){
